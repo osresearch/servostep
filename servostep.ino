@@ -6,6 +6,9 @@
 
 
 #define K_eps 10	// how close is "good enough"
+#define MIN_SPEED	1000
+#define MAX_SPEED	12000
+#define SPEED_RAMP	5
 
 
 #define STEP_PIN 10
@@ -90,38 +93,53 @@ void loop()
 	// check for a command
 	read_command();
 
-	// run the control loop at 1 KHz
+	// run the control loop at a constant speed
 	static unsigned last_now;
-	const unsigned now = millis();
-	if (now == last_now)
+	const unsigned now = micros();
+	if (now - last_now < 200)
 		return;
 	last_now = now;
 
 	static unsigned update_rate;
 	static int16_t old_count;
 	int16_t count = QuadDecode.getCounter1();
-	int16_t delta = count - old_count;
-	old_count = count;
+
+	static int current_dir;
+	static unsigned current_speed;
 
 	if ((update_rate++ % 16) == 0)
-		Serial.printf( "%+6d %+6d %+6d\r\n", count, delta, target);
+	{
+		int16_t delta = count - old_count;
+		old_count = count;
+		Serial.printf( "%d %+6d %+6d => %+6d %+6d\r\n", now, count, delta, target, current_speed);
+	}
 
 	int error = target - count;
+	int dir = error > 0;
 
-	if (error < 0)
+	if (-K_eps < error && error < K_eps)
 	{
-		digitalWriteFast(DIR_PIN, 0);
-		error = -error;
+		// stop the stepper
+		analogWrite(STEP_PIN, 0);
+		current_speed = 0;
+		return;
+	}
+
+	if (current_dir != dir && current_speed > MIN_SPEED)
+	{
+		// we were going the other way, bring the speed back to 0
+		current_speed /= 2;
 	} else {
-		digitalWriteFast(DIR_PIN, 1);
+		// ramp the speed up to the max
+		current_dir = dir;
+		if (current_speed < MIN_SPEED)
+			current_speed = MIN_SPEED;
+		if (current_speed < MAX_SPEED)
+			current_speed += SPEED_RAMP;
+		//current_speed = (current_speed * 255 + MAX_SPEED) / 256;
 	}
 
-	if (error < K_eps)
-	{
-		// do nothing
-	} else
-	{
-		// step
-		digitalWriteFast(STEP_PIN, update_rate & 1);
-	}
+	digitalWriteFast(DIR_PIN, current_dir);
+	analogWriteFrequency(STEP_PIN, current_speed);
+	analogWrite(STEP_PIN, 128); // 50% duty cycle
 }
