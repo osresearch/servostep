@@ -4,10 +4,8 @@
  */
 #include "QuadDecode.h"
 
-
 #define K_eps 10	// how close is "good enough"
-#define MIN_SPEED	1000
-#define MAX_SPEED	12000
+#define MAX_SPEED	20000
 #define SPEED_RAMP	5
 
 
@@ -19,6 +17,10 @@ void setup()
 	Serial.begin(115200);  
 	pinMode(STEP_PIN, OUTPUT);
 	pinMode(DIR_PIN, OUTPUT);
+
+	// 50% duty cycle
+	analogWriteFrequency(STEP_PIN, 1);
+	analogWrite(STEP_PIN, 128);
 }
 
 static int16_t target;
@@ -28,7 +30,7 @@ servo_cmd(
 	int cmd
 )
 {
-	if (cmd < -65536 || cmd >= +65536)
+	if (cmd < -65536 || cmd > +65535)
 	{
 		Serial.println("range");
 		return;
@@ -93,53 +95,91 @@ void loop()
 	// check for a command
 	read_command();
 
-	// run the control loop at a constant speed
+	// run the control loop at 1 KHz
 	static unsigned last_now;
 	const unsigned now = micros();
-	if (now - last_now < 200)
+	if (now - last_now < 1000)
 		return;
 	last_now = now;
 
 	static unsigned update_rate;
 	static int16_t old_count;
-	int16_t count = QuadDecode.getCounter1();
+	const int16_t count = QuadDecode.getCounter1();
+	const int delta = count - old_count;
+	old_count = count;
 
 	static int current_dir;
 	static unsigned current_speed;
 
 	if ((update_rate++ % 16) == 0)
 	{
-		int16_t delta = count - old_count;
-		old_count = count;
-		Serial.printf( "%d %+6d %+6d => %+6d %+6d\r\n", now, count, delta, target, current_speed);
+		static int16_t print_count;
+		int16_t print_delta = count - print_count;
+		print_count = count;
+		Serial.printf( "%d %+6d %+6d => %+6d %+6d\r\n", now, count, print_delta, target, current_speed);
 	}
 
+#if 0
+	static int old_target;
+	//if (target != old_target)
+	{
+		if (target != 0)
+		{
+		//analogWriteFrequency(STEP_PIN, target);
+		//analogWrite(STEP_PIN, 128);
+		tone(STEP_PIN, target);
+		}
+		old_target = target;
+	}
+
+#else
 	int error = target - count;
 	int dir = error > 0;
 
 	if (-K_eps < error && error < K_eps)
 	{
-		// stop the stepper
+		// stop the stepper by doing to a 0% duty cycle
+cli();
 		analogWrite(STEP_PIN, 0);
-		current_speed = 0;
+sei();
+		current_speed = -1;
 		return;
 	}
 
-	if (current_dir != dir && current_speed > MIN_SPEED)
+	if (current_speed == -1)
+	{
+		// we are resuming motion, restore the duty cycle
+cli();
+		analogWrite(STEP_PIN, 128);
+sei();
+		current_speed = 0;
+	}
+
+	if (current_dir != dir && current_speed > 0)
 	{
 		// we were going the other way, bring the speed back to 0
 		current_speed /= 2;
 	} else {
 		// ramp the speed up to the max
 		current_dir = dir;
-		if (current_speed < MIN_SPEED)
-			current_speed = MIN_SPEED;
-		if (current_speed < MAX_SPEED)
-			current_speed += SPEED_RAMP;
-		//current_speed = (current_speed * 255 + MAX_SPEED) / 256;
+		//if (current_speed < MAX_SPEED)
+			//current_speed += SPEED_RAMP;
+		current_speed = (current_speed * 255 + MAX_SPEED) / 256;
 	}
 
+	// limit the speed to be proportional to the current change
+	// to avoid missing steps
+	const int delta_mag = abs(delta);
+	if (current_speed > (delta_mag+1) * 2000)
+		current_speed = (delta_mag+1) * 2000;
+
 	digitalWriteFast(DIR_PIN, current_dir);
+
+	cli();
+	// if interrupts are not disabled when these values are changed
+	// it seems that corruption of the registers can result.
 	analogWriteFrequency(STEP_PIN, current_speed);
-	analogWrite(STEP_PIN, 128); // 50% duty cycle
+	analogWrite(STEP_PIN, 128);
+	sei();
+#endif
 }
