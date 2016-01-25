@@ -121,16 +121,18 @@ void loop()
 
 #if 0
 	static int old_target;
-	//if (target != old_target)
+	if (target != old_target)
 	{
-		if (target != 0)
 		{
-		//analogWriteFrequency(STEP_PIN, target);
-		//analogWrite(STEP_PIN, 128);
-		tone(STEP_PIN, target);
+cli();
+		analogWriteFrequency(STEP_PIN, target);
+		analogWrite(STEP_PIN, 128);
+sei();
+		//tone(STEP_PIN, target);
 		}
 		old_target = target;
 	}
+
 
 #else
 	int error = target - count;
