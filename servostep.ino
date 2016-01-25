@@ -6,7 +6,7 @@
 
 #define K_eps 10	// how close is "good enough"
 #define MAX_SPEED	20000
-#define SPEED_RAMP	5
+#define SPEED_RAMP	100
 
 
 #define STEP_PIN 10
@@ -98,7 +98,7 @@ void loop()
 	// run the control loop at 1 KHz
 	static unsigned last_now;
 	const unsigned now = micros();
-	if (now - last_now < 1000)
+	if (now - last_now < 500)
 		return;
 	last_now = now;
 
@@ -162,9 +162,11 @@ sei();
 	} else {
 		// ramp the speed up to the max
 		current_dir = dir;
-		//if (current_speed < MAX_SPEED)
-			//current_speed += SPEED_RAMP;
+		if (current_speed < MAX_SPEED)
+			current_speed += SPEED_RAMP;
+/*
 		current_speed = (current_speed * 255 + MAX_SPEED) / 256;
+*/
 	}
 
 	// limit the speed to be proportional to the current change
