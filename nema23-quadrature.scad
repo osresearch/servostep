@@ -4,6 +4,8 @@
  * This catches the screw holes on the back of the NEMA23 motor using
  * long M3x30 screws and allows the quadrature encoder to be screwed
  * in with three M3x10 ones.
+ *
+ * Todo: channel for set screw, fix spacing on motor mounts.
  */
 plate_thick = 15;
 plate_side = 60;
