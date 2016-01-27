@@ -1,0 +1,74 @@
+\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+
+Jerk is the derivative of acceleration, or the third derivative of position.
+We want to implement a {\em constant jerk} control law for the servo
+controller.  We have three parameters as input: the target position $X$,
+the maximum jerk $J$, the maximum acceleration $A$ and the maximum
+velocity $V$.  Note that the maximums are limits; we do not want to
+decellerate any faster than we accelerate.
+
+First, the basics equations of motion:
+
+\newcommand{\half}{\frac{1}{2}}
+
+$$j(t) \in \{ -J, 0, +J \}$$
+$$a(t) = \int j(t) dt = a_0 + j t$$
+$$v(t) = \int a(t) dt = v_0 + a_0 t + \half j t^2$$
+$$x(t) = \int v(t) dt = x_0 + v_0 t + \half a_0 t^2 + \frac{1}{6} j t^3$$
+
+Assuming that the motor starts at rest, $a_0 = 0$, $v_0 = 0$ and $x_0 = 0$.
+Initially we want to begin acceleration with $j(0) = +J$ until we reach
+our maximum allowed acceleration $A$.
+
+$$a(t_1) = A = a(t_0) + J t_1 \rightarrow t_1 = \frac{A}{J}$$
+
+Our velocity at this point $t_1$ is:
+
+\begin{align}
+v(t_1) &= v(t_0) + a(t_0) t_1 + \half J t_1^2 \\
+       &= \half J (\frac{A}{J})^2 \\
+       &= \half \frac{A^2}{J}
+\end{align}
+
+At this point the jerk goes to zero and we continue to accelerate
+at a constant acceleration. But for how long? We want to smoothly
+decellerate so that the acceleration goes to zero exactly as we
+achieve the desired velocity $V$.  By symmetry we can see that the
+decelleration period is the same length as the acceleration period,
+so we will gain the same amount of velocity as we did at $v(t_1)$.
+
+\begin{align}
+V &= 2 * v(t_1) + A t_2 \\
+  &= 2 * \half \frac{A^2}{J} + A t_2 \\
+  &= \frac{A^2}{J} + A t_2 \\
+A t_2 &= V - \frac{A^2}{J} \\
+  t_2 &= \frac{V}{A} - \frac{A}{J} \\
+\end{align}
+
+Therefor the time that we achieve our maximum velocity is
+
+\begin{align}
+t_v &= 2 t_1 + t_2 \\
+    &= 2 \frac{A}{J} + \frac{V}{A} - \frac{A}{J} \\
+    &= \frac{A}{J} + \frac{V}{A}
+\end{align}
+
+We could compute the distance 
+And we have travelled:
+
+\begin{align}
+x(t_1) &= x(t_0) + v(t_0) t_1 + \half a(t_0) t_1^2 + \frac{1}{6} J t_1^3 \\
+       &= \frac{1}{6} J (\frac{A}{J})^3 \\
+       &= \frac{1}{6} \frac{A^3}{J^2}
+\end{align}
+
+During this time of constant acceleration we move an additional
+
+\begin{align}
+x(t_2) &= x(t_1) + v(t_1) t_2 + \half A t_2^2 \\
+       &= \frac{1}{6} \frac{A^3}{J^2} + \half \frac{A^2}{J} (\frac{V}{A} - \frac{A}{J}) + \half A (\frac{V}{A} - \frac{A}{J})^2 \\
+\end{align}
+
+\end{document}
