@@ -178,47 +178,56 @@ void loop()
 		return;
 	last_now = now;
 
-	if (target == 0)
+	if (target < -max_v)
+		target = -max_v;
+	else
+	if (target > +max_v)
+		target = +max_v;
+
+	const float err_v = target - v;
+	const float eps = 1; // mm/s
+  
+	if (err_v > eps)
 	{
-		// decelerate to zero velocity
-		if (v > max_j_delta_v)
+		if (err_v > max_j_delta_v)
 		{
-			if (a > -max_a)
-			{
-				j = -max_j;
-			} else {
+			// accelerate towards v
+			if (a < max_a)
+				j = +max_j;
+			else
 				j = 0;
-			}
 		} else
-		if (v > 0)
 		{
-			// start slowing down
-			j = +max_j;
-		} else {
-			// hard stop at zero
-			a = j = 0;
+			// our error is small, we need to start decelerating
+			if (a > -max_a)
+				j = -max_j;
+			else
+				j = 0;
+		}
+	} else
+	if (err_v < -eps)
+	{
+		if (err_v < -max_j_delta_v)
+		{
+			// accelerate towards target
+			if (a > -max_a)
+				j = -max_j;
+			else
+				j = 0;
+		} else
+		{
+			// start decelerating
+			if (a < +max_a)
+				j = +max_j;
+			else
+				j = 0;
 		}
 	} else {
-		if (v < max_v - max_j_delta_v)
-		{
-			// accelerate to max_v
-			if (a < max_a)
-			{
-				j = +max_j;
-			} else {
-				j = 0;
-			}
-		} else
-		if (v < max_v)
-		{
-			// start slowing down
-			j = -max_j;
-		} else {
-			// hard stop at max_v
-			a = j = 0;
-		}
+		// hopefully we have hit our target
+		// and our acceleration ramped to zero so that
+		// this is not discontinuous
+		a = j = 0;
 	}
-
 
 	a += j * dt;
 	v += a * dt;
