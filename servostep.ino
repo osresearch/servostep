@@ -1,6 +1,8 @@
 /** \file
  * Closed loop servo with a stepper motor and quadrature encoder.
  *
+ * Time spent jerking: max_a / max_j
+ * Velocity gained: 1/2 max_a^2 / max_j
  */
 #include "QuadDecode.h"
 
@@ -8,6 +10,19 @@
 #define MAX_SPEED	20000
 #define SPEED_RAMP	100
 
+static const float dt = 0.005; // 200 Hz update rate
+static const unsigned dt_in_micros = 1.0e6 * dt;
+static const float max_j = 1000; // mm/s^3
+static const float max_a = 1000; // mm/s^2
+static const float max_v = 2400; // mm/s
+static const float steps_per_mm = (200 * 16) / 350.0;
+static const float steps_per_tick =  (200 * 16 / 4096);
+static float a = 0;
+static float j = 0;
+static float v = 0;
+
+// How much velocity do we gain or lose by jerking at max_j?
+static const float max_j_delta_v = 0.5 * max_a * max_a / max_j;
 
 #define STEP_PIN 10
 #define DIR_PIN 13
@@ -19,7 +34,7 @@ void setup()
 	pinMode(DIR_PIN, OUTPUT);
 
 	// 50% duty cycle
-	analogWriteFrequency(STEP_PIN, 1);
+	analogWriteFrequency(STEP_PIN, 0);
 	analogWrite(STEP_PIN, 128);
 }
 
@@ -90,51 +105,172 @@ read_command()
 	return;
 }
 
+
+void velocity_cmd(int frequency)
+{
+	int dir = 1;
+
+	if (frequency < 0)
+	{
+		frequency = -frequency;
+		dir = 0;
+	}
+
+#if 0
+	uint32_t prescale;
+
+	for (prescale = 0; prescale < 7; prescale++)
+	{
+		uint32_t minfreq = (F_BUS >> 16) >> prescale;
+		if (frequency > minfreq)
+			break;
+	}
+
+	uint32_t mod = (((F_BUS >> prescale) + (frequency >> 1)) / frequency) - 1;
+	if (mod > 65535)
+		mod = 65535;
+
+	FTM0_SC = 0;
+	FTM0_MOD = mod;
+	FTM0_SC = FTM_SC_CLKS(1) | FTM_SC_PS(prescale);
+
+
+	// make sure we don't glitch by not resetting FMT0_CNT
+	// FMT0_CNT = 0;
+	// should check that we haven't hit the overflow case
+	// if so our next pulse will be delayed
+#endif
+	analogWriteFrequency(STEP_PIN, frequency);
+
+	// make sure we are going in the right diretion
+	digitalWriteFast(DIR_PIN, dir);
+
+	// and that our duty cycle is right
+	analogWrite(STEP_PIN, 128);
+}
+
+
+void
+compute_speed(
+	int	current_count,
+	int	current_speed,
+	int	target_count,
+	int	target_speed,
+	int	end_speed
+)
+{
+	// determine what phase we are in:
+	// accelerating towards the target speed,
+	// declerating towards the target speed
+	// maintaining speed
+	// decelerating towards the end speed
+}
+
+
 void loop()
 {
 	// check for a command
 	read_command();
 
-	// run the control loop at 1 KHz
 	static unsigned last_now;
 	const unsigned now = micros();
-	if (now - last_now < 500)
+	if (now - last_now < dt_in_micros)
 		return;
 	last_now = now;
 
-	static unsigned update_rate;
+	if (target == 0)
+	{
+		// decelerate to zero velocity
+		if (v > max_j_delta_v)
+		{
+			if (a > -max_a)
+			{
+				j = -max_j;
+			} else {
+				j = 0;
+			}
+		} else
+		if (v > 0)
+		{
+			// start slowing down
+			j = +max_j;
+		} else {
+			// hard stop at zero
+			a = j = 0;
+		}
+	} else {
+		if (v < max_v - max_j_delta_v)
+		{
+			// accelerate to max_v
+			if (a < max_a)
+			{
+				j = +max_j;
+			} else {
+				j = 0;
+			}
+		} else
+		if (v < max_v)
+		{
+			// start slowing down
+			j = -max_j;
+		} else {
+			// hard stop at max_v
+			a = j = 0;
+		}
+	}
+
+
+	a += j * dt;
+	v += a * dt;
+
+	velocity_cmd(v * steps_per_mm);
+
+	Serial.printf("%+8.3f %+8.3f %+8.3f %+8d\r\n",
+		v,
+		a,
+		j,
+		QuadDecode.getCounter1()
+	);
+	
+#if 0
+	// compute the instantaneous delta in position
 	static int16_t old_count;
 	const int16_t count = QuadDecode.getCounter1();
-	const int delta = count - old_count;
+	int delta = count - old_count;
+
+	// fixup delta if it wraps around
+	if (delta > 32768)
+		delta -= 65536;
+	else
+	if (delta < -32768)
+		delta += 65536;
+
 	old_count = count;
 
-	static int current_dir;
-	static unsigned current_speed;
+	// compute a smoothed velocity
+	static float speed;
+	speed = speed + delta - speed * (dt / 1.0e6);
+
 
 	if ((update_rate++ % 16) == 0)
 	{
-		static int16_t print_count;
-		int16_t print_delta = count - print_count;
-		print_count = count;
-		Serial.printf( "%d %+6d %+6d => %+6d %+6d\r\n", now, count, print_delta, target, current_speed);
+		//Serial.printf( "%d %+6d %+6d => %+6d %+6d\r\n", now, count, speed, target, current_speed);
+		Serial.printf( "%d %+6d %+6d %+6d => %+6d\r\n", now, count, delta, (int)(10 * speed), target);
 	}
+
+	compute_target(count, speed, target, target_speed, end_speed);
 
 #if 0
 	static int old_target;
 	if (target != old_target)
 	{
-		{
-cli();
-		analogWriteFrequency(STEP_PIN, target);
-		analogWrite(STEP_PIN, 128);
-sei();
-		//tone(STEP_PIN, target);
-		}
+		velocity_cmd(target);
 		old_target = target;
 	}
 
 
 #else
+	static int current_dir;
 	int error = target - count;
 	int dir = error > 0;
 
@@ -182,8 +318,9 @@ sei();
 	cli();
 	// if interrupts are not disabled when these values are changed
 	// it seems that corruption of the registers can result.
-	analogWriteFrequency(STEP_PIN, current_speed);
+	analogWriteFrequency2(STEP_PIN, current_speed);
 	analogWrite(STEP_PIN, 128);
 	sei();
+#endif
 #endif
 }
