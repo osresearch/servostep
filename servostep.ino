@@ -10,6 +10,7 @@
 
 static const float dt = 1.0 / 500; // 500 Hz update rate
 static const unsigned dt_in_micros = 1.0e6 * dt;
+//static const float max_j = 30000; // mm/s^3
 static const float max_j = 30000; // mm/s^3
 static const float max_a = 10000; // mm/s^2
 static const float max_v = 2400; // mm/s
@@ -19,8 +20,6 @@ static float a = 0;
 static float j = 0;
 static float v = 0;
 
-// How much velocity do we gain or lose by jerking at max_j?
-static const float max_j_delta_v = 0.5 * max_a * max_a / max_j;
 
 #define STEP_PIN 10
 #define DIR_PIN 13
