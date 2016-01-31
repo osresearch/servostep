@@ -1,8 +1,6 @@
 /** \file
  * Closed loop servo with a stepper motor and quadrature encoder.
  *
- * Time spent jerking: max_a / max_j
- * Velocity gained: 1/2 max_a^2 / max_j
  */
 #include "QuadDecode.h"
 
@@ -10,10 +8,10 @@
 #define MAX_SPEED	20000
 #define SPEED_RAMP	100
 
-static const float dt = 0.005; // 200 Hz update rate
+static const float dt = 1.0 / 500; // 500 Hz update rate
 static const unsigned dt_in_micros = 1.0e6 * dt;
-static const float max_j = 1000; // mm/s^3
-static const float max_a = 1000; // mm/s^2
+static const float max_j = 30000; // mm/s^3
+static const float max_a = 10000; // mm/s^2
 static const float max_v = 2400; // mm/s
 static const float steps_per_mm = (200 * 16) / 350.0;
 static const float steps_per_tick =  (200 * 16 / 4096);
@@ -187,46 +185,49 @@ void loop()
 	const float err_v = target - v;
 	const float eps = 1; // mm/s
   
-	if (err_v > eps)
+	// we want to start decelerating when our velocity is
+	// within this change. there is a little bit of slop here
+	const float max_v_change = a * a / max_j / 2 - 3;
+
+ 	if (fabs(err_v) < eps)
 	{
-		if (err_v > max_j_delta_v)
-		{
-			// accelerate towards v
-			if (a < max_a)
-				j = +max_j;
-			else
-				j = 0;
-		} else
-		{
-			// our error is small, we need to start decelerating
-			if (a > -max_a)
-				j = -max_j;
-			else
-				j = 0;
-		}
-	} else
-	if (err_v < -eps)
-	{
-		if (err_v < -max_j_delta_v)
-		{
-			// accelerate towards target
-			if (a > -max_a)
-				j = -max_j;
-			else
-				j = 0;
-		} else
-		{
-			// start decelerating
-			if (a < +max_a)
-				j = +max_j;
-			else
-				j = 0;
-		}
-	} else {
 		// hopefully we have hit our target
 		// and our acceleration ramped to zero so that
 		// this is not discontinuous
 		a = j = 0;
+	} else
+	if (err_v > max_v_change)
+	{
+		// we need to speed up to reach our desired speed.
+		// accelerate towards v
+		if (a < max_a)
+			j = +max_j;
+		else
+			j = 0;
+	} else
+	if (err_v > eps)
+	{
+		// our error is small, we need to start decelerating
+		if (a > -max_a)
+			j = -max_j;
+		else
+			j = 0;
+	} else
+	if (err_v < -max_v_change)
+	{
+		// accelerate towards target
+		if (a > -max_a)
+			j = -max_j;
+		else
+			j = 0;
+	} else
+	if (err_v < -eps)
+	{
+		// start decelerating
+		if (a < +max_a)
+			j = +max_j;
+		else
+			j = 0;
 	}
 
 	a += j * dt;
